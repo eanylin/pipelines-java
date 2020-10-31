@@ -1,0 +1,73 @@
+# Maven
+# Build your Java project and run tests with Apache Maven.
+# Add steps that analyze code, save build artifacts, deploy, and more:
+# https://docs.microsoft.com/azure/devops/pipelines/languages/java
+
+trigger:
+- master
+
+stages:
+- stage: build_and_test
+  displayName: 'Continuous Integration'
+  pool:
+    vmImage: 'ubuntu-18.04'
+
+  jobs:
+  - job: BuildAppUnitTestCodeCoverage
+    steps:
+      - task: Maven@3
+        inputs:
+          mavenPomFile: 'pom.xml'
+          mavenOptions: '-Xmx3072m'
+          javaHomeOption: 'JDKVersion'
+          jdkVersionOption: '1.8'
+          jdkArchitectureOption: 'x64'
+          publishJUnitResults: true
+          testResultsFiles: '**/surefire-reports/TEST-*.xml'
+          goals: 'package'
+
+      - task: PublishCodeCoverageResults@1
+        inputs:
+          codeCoverageTool: 'JaCoCo'
+          summaryFileLocation: '$(System.DefaultWorkingDirectory)/**/site/jacoco/jacoco.xml'
+          reportDirectory: '$(System.DefaultWorkingDirectory)/**/site/jacoco'
+          failIfCoverageEmpty: true
+
+      - task: PublishPipelineArtifact@1
+        inputs:
+          targetPath: '$(System.DefaultWorkingDirectory)'
+          artifactName: 'WebApp'
+
+- stage: deploy
+  displayName: 'Ansible Tower Workflow Deployment'
+  variables:
+  - group: ansible_tower_vars
+
+  jobs:
+  - deployment: TriggerAnsibleTowerWorkflow
+    environment: 'production'
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+            - task: SSH@0
+              inputs:
+                sshEndpoint: 'ansibleTower'
+                runOptions: 'commands'
+                commands: awx --conf.host $(ansible-tower-host) --conf.username $(ansible-tower-user) --conf.password $(ansible-tower-user-password) --conf.insecure workflow_job_templates launch  --extra_vars $(ansible-tower-extra-vars) 28
+#               commands: awx --conf.host $(tower-host) --conf.username $(tower-user) --conf.password $(tower-user-password) --conf.insecure job_templates launch --extra_vars '{"win_vm":"test","win_update_category":["SecurityUpdates"]}' 23
+# 
+#
+# Example on how to trigger Ansible Tower using RESTful API
+#jobs:
+#- job: Test1
+#  pool: server
+#  steps:
+#    - task: InvokeRESTAPI@1
+#      inputs:
+#        connectionType: 'connectedServiceName'
+#        serviceConnection: 'ansibleTower'
+#        method: 'GET'
+#        headers: '{"Content-Type":"application/json"}'
+#        urlSuffix: '/api/v2/ping/'
+#        waitForCompletion: 'false'
